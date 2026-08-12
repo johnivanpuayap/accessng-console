@@ -13,6 +13,7 @@
   <nav class="tabs">
     <button data-view="tracker" class="on">Tracker</button>
     <button data-view="deploy">Deploy</button>
+    <button data-view="history">History</button>
   </nav>
   <span class="spacer"></span>
   <span class="saveflag" id="saveflag"></span>
@@ -92,6 +93,21 @@
 
     <div class="note">Backups land in <code>backups\&lt;env&gt;\</code> inside the repo before every upload.
       A failed deploy leaves the previous release live and the backup intact.</div>
+  </section>
+
+  <section class="view" id="view-history">
+    <div class="sub">Everything that happened, newest first &mdash; issue changes and every deploy.
+      Kept in <code>data\history.jsonl</code>, append-only, never rewritten by an import.</div>
+    <div class="toolbar">
+      <input type="search" id="hq" placeholder="Search the history">
+      <div class="statustabs" id="hfilter" style="margin:0">
+        <button data-hk="" class="on">Everything</button>
+        <button data-hk="issue">Issues</button>
+        <button data-hk="deploy">Deploys</button>
+      </div>
+      <button id="hexport">Export</button>
+    </div>
+    <div id="timeline"></div>
   </section>
 
 </div>

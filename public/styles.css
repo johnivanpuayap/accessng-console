@@ -146,4 +146,23 @@ pre.log { margin: 0; padding: 12px 14px; max-height: 400px; overflow: auto; colo
 .banner.bad { background: var(--danger-bg); color: var(--danger); }
 .note { margin-top: 18px; font-size: 12px; color: var(--muted); }
 .sub { color: var(--muted); font-size: 12px; }
+
+/* ---------- history ---------- */
+.hday { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
+        font-weight: 600; margin: 18px 0 8px; }
+.hday:first-child { margin-top: 4px; }
+.hlist { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.hrow { display: flex; gap: 12px; padding: 9px 14px; border-top: 1px solid var(--line-soft, var(--line)); align-items: baseline; }
+.hlist .hrow:first-child { border-top: none; }
+.hrow .ht { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted);
+            white-space: nowrap; padding-top: 1px; }
+.hrow .hb { flex: 1; min-width: 0; }
+.hrow .hn { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--accent);
+            cursor: pointer; margin-right: 6px; }
+.hrow .hd { color: var(--muted); font-size: 12px; margin-top: 2px; white-space: pre-wrap; }
+.hrow.deploy { background: var(--info-bg); }
+.hrow.failed { background: var(--danger-bg); }
+.hrow.failed .hk { color: var(--danger); font-weight: 600; }
+.activity { border-top: 1px solid var(--line); padding-top: 12px; }
+.activity .hrow { padding: 5px 0; border: none; }
 .bar { display: flex; align-items: center; gap: 10px; margin: 14px 0 18px; }

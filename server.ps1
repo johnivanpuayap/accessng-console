@@ -41,6 +41,7 @@ if ($RepoRoot) { $config.repoRoot = $RepoRoot }
 $repoRoot     = $config.repoRoot
 $deployScript = Join-Path $repoRoot '.claude\skills\deploy-accessng\deploy-accessng.ps1'
 $trackerPath  = Join-Path $dataDir 'tracker.json'
+$historyPath  = Join-Path $dataDir 'history.jsonl'
 $origin       = "http://localhost:$($config.port)"
 
 # Injected into the page and required on every /api/ call: a page served from here can read it,
@@ -134,6 +135,10 @@ function Get-JobState {
         if ((Test-Path -LiteralPath $errPath) -and (Get-Item -LiteralPath $errPath).Length -gt 0) {
             Add-Content -Path $j.log -Encoding UTF8 -Value ("`n=== stderr ===`n" + (Get-Content -LiteralPath $errPath -Raw))
         }
+        $secs = [int]((Get-Date) - [datetime]$j.startedAt).TotalSeconds
+        Add-History @{ kind = 'deploy'; action = $(if ($j.exitCode -eq 0) { 'finished' } else { 'failed' })
+                       env = $j.env; branch = $j.branch; sha = $j.sha; exitCode = $j.exitCode
+                       seconds = $secs; log = (Split-Path $j.log -Leaf) }
         $script:Cache.at = [DateTime]::MinValue
     }
     @{ running = $j.running; env = $j.env; branch = $j.branch; source = $j.source
@@ -290,6 +295,9 @@ function Start-Deploy([string]$targetEnv) {
     $script:Job = @{ running = $true; env = $targetEnv; branch = $plan.branch; source = $plan.source
                      sha = $plan.sha; startedAt = (Get-Date).ToString('o'); endedAt = $null
                      exitCode = $null; log = $log; proc = $proc }
+    Add-History @{ kind = 'deploy'; action = 'started'; env = $targetEnv; branch = $plan.branch
+                   source = $plan.source; sha = $plan.sha
+                   commits = @($plan.changes | ForEach-Object { "$($_.short) $($_.subject)" }) }
     @{ ok = $true; branch = $plan.branch; log = (Split-Path $log -Leaf) }
 }
 
@@ -320,6 +328,23 @@ function Read-LogFrom([long]$from) {
 function Read-Tracker {
     if (-not (Test-Path $trackerPath)) { return '{"version":1,"issues":[]}' }
     [System.IO.File]::ReadAllText($trackerPath, [Text.Encoding]::UTF8)
+}
+
+function Add-History($entry) {
+    if (-not $entry.at) {
+        if ($entry -is [hashtable]) { $entry.at = (Get-Date).ToString('o') }
+        else { $entry | Add-Member -NotePropertyName at -NotePropertyValue ((Get-Date).ToString('o')) -Force }
+    }
+    $line = ($entry | ConvertTo-Json -Depth 8 -Compress)
+    [System.IO.File]::AppendAllText($historyPath, $line + "`n", (New-Object Text.UTF8Encoding($false)))
+}
+
+function Read-History([int]$limit) {
+    if (-not (Test-Path $historyPath)) { return @() }
+    $lines = @(Get-Content -LiteralPath $historyPath -Encoding UTF8 | Where-Object { $_.Trim() })
+    if ($limit -gt 0 -and $lines.Count -gt $limit) { $lines = $lines[($lines.Count - $limit)..($lines.Count - 1)] }
+    [array]::Reverse($lines)
+    @($lines | ForEach-Object { try { $_ | ConvertFrom-Json } catch {} })
 }
 
 function Write-Tracker([string]$json) {
@@ -416,6 +441,19 @@ try {
                     } else {
                         try   { Write-Tracker (Read-Body $ctx); Send-Json $ctx @{ ok = $true } }
                         catch { Send-Json $ctx @{ ok = $false; error = $_.Exception.Message } 400 }
+                    }
+                }
+                '/api/history' {
+                    if ($req.HttpMethod -eq 'GET') {
+                        [int]$limit = 500
+                        [void][int]::TryParse([string]$req.QueryString['limit'], [ref]$limit)
+                        Send-Json $ctx @{ ok = $true; entries = @(Read-History $limit) }
+                    } else {
+                        try {
+                            $parsed = (Read-Body $ctx) | ConvertFrom-Json
+                            foreach ($e in @($parsed)) { Add-History $e }
+                            Send-Json $ctx @{ ok = $true }
+                        } catch { Send-Json $ctx @{ ok = $false; error = $_.Exception.Message } 400 }
                     }
                 }
                 '/api/state' {

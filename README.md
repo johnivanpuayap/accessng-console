@@ -26,6 +26,20 @@ subtask checklist, status (`open` / `in progress` / `waiting` / `done`) and priv
 
 Comments are deliberately local and private — they are never sent anywhere.
 
+## History
+
+Every change is recorded, so there is always an answer to "what did I work on": issues created and
+deleted, status/priority/deadline/area changes with their before and after, subtasks ticked and
+added, comments, imports, and every deploy with its branch, target, duration and outcome.
+
+- The **History** tab is a newest-first timeline grouped by day, filterable to issues or deploys
+  and searchable; clicking an issue number jumps to it.
+- Each issue also carries its own **Activity** list inside its detail view.
+- Text edits are coalesced — one entry per burst of typing, recording the value it started from,
+  rather than one per keystroke.
+- It lives in `data\history.jsonl`, append-only. Restoring a backup never rewrites it, so the
+  record survives a bad import. **Export** downloads the whole log.
+
 ## Deploy
 
 Drives the repo's own `.claude\skills\deploy-accessng\deploy-accessng.ps1`, so the FTPS

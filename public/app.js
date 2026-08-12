@@ -16,6 +16,7 @@ const PRIO_RANK = { high: 0, medium: 1, low: 2 };
 let db = { version: 1, nextNum: 1, issues: [] };
 let statusTab = 'active', todayFilter = null, openId = null, search = '', areaFilter = '';
 let saveTimer = null, armedDelete = null;
+let history = [], hKind = '', hSearch = '';
 
 /* ------------------------------------------------------------------ storage */
 
@@ -80,6 +81,133 @@ function save() {
 }
 
 function touch(issue) { issue.updatedAt = new Date().toISOString(); save(); }
+
+/* ------------------------------------------------------------------ history */
+
+function logHistory(entry) {
+  const e = Object.assign({ at: new Date().toISOString() }, entry);
+  history.unshift(e);
+  api('history', '', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(e) });
+  if (document.getElementById('view-history').classList.contains('on')) renderHistory();
+}
+
+function logIssue(issue, action, extra) {
+  logHistory(Object.assign({ kind: 'issue', action, id: issue.id, num: issue.num, title: issue.title }, extra || {}));
+}
+
+// One entry per burst of edits to the same field, keeping the value it started from.
+const pending = new Map();
+function noteEdit(issue, field, from) {
+  const k = issue.id + ':' + field;
+  const prev = pending.get(k);
+  if (prev) clearTimeout(prev.timer);
+  const origin = prev ? prev.from : from;
+  const wait = ['title', 'description'].includes(field) ? 2500 : 900;
+  pending.set(k, {
+    from: origin,
+    timer: setTimeout(() => {
+      pending.delete(k);
+      const to = issue[field];
+      if (String(origin ?? '') === String(to ?? '')) return;
+      logIssue(issue, field === 'status' ? 'status' : 'edited', { field, from: origin || '', to: to || '' });
+    }, wait)
+  });
+}
+
+async function loadHistory() {
+  const r = await api('history', '&limit=1500');
+  history = r.entries || [];
+  renderHistory();
+  if (db.issues.length) renderTracker();
+}
+
+function sentence(e) {
+  if (e.kind === 'deploy') {
+    const where = `<b>${esc(e.branch || '')}</b> → <b>${esc(e.env || '')}</b>`;
+    if (e.action === 'started') return `Deploy started: ${where}`;
+    if (e.action === 'finished') return `Deploy finished: ${where}${e.seconds != null ? ` in ${Math.round(e.seconds / 60)}m ${e.seconds % 60}s` : ''}`;
+    return `<span class="hk">Deploy FAILED</span>: ${where}`;
+  }
+  const f = esc(e.field || '');
+  switch (e.action) {
+    case 'created': return 'Created';
+    case 'deleted': return 'Deleted';
+    case 'status': return `Status ${esc(STATUS_LABEL[e.from] || e.from || '—')} → <b>${esc(STATUS_LABEL[e.to] || e.to)}</b>`;
+    case 'edited': return e.field === 'description' || e.field === 'title'
+      ? `Edited ${f}` : `${f.charAt(0).toUpperCase() + f.slice(1)} ${esc(e.from || '—')} → <b>${esc(e.to || '—')}</b>`;
+    case 'subtask': return `${e.done ? 'Ticked' : 'Unticked'} subtask`;
+    case 'subtask-added': return 'Added subtask';
+    case 'subtask-removed': return 'Removed subtask';
+    case 'comment': return 'Commented';
+    case 'comment-removed': return 'Deleted a comment';
+    case 'imported': return `Imported ${e.count} issues from ${esc(e.file || 'a backup')}`;
+    default: return esc(e.action || '');
+  }
+}
+
+function dayLabel(iso) {
+  const d = new Date(iso), t = todayStr();
+  const key = d.toLocaleDateString('en-CA');
+  if (key === t) return 'Today';
+  if (key === new Date(Date.now() - 864e5).toLocaleDateString('en-CA')) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
+function renderHistory() {
+  const q = hSearch.toLowerCase();
+  const rows = history.filter(e => (!hKind || e.kind === hKind))
+    .filter(e => !q || JSON.stringify(e).toLowerCase().includes(q));
+  if (!rows.length) {
+    $('timeline').innerHTML = '<div class="empty">Nothing recorded yet. Changes you make from here on are logged.</div>';
+    return;
+  }
+  let out = '', day = null, openList = false;
+  for (const e of rows) {
+    const d = dayLabel(e.at);
+    if (d !== day) {
+      if (openList) out += '</div>';
+      out += `<div class="hday">${esc(d)}</div><div class="hlist">`;
+      day = d; openList = true;
+    }
+    const cls = e.kind === 'deploy' ? (e.action === 'failed' ? 'deploy failed' : 'deploy') : '';
+    const detail = e.kind === 'deploy'
+      ? (e.commits && e.commits.length ? e.commits.slice(0, 6).map(esc).join('\n') : '')
+      : (e.text || (e.field === 'description' || e.field === 'title' ? '' : ''));
+    out += `<div class="hrow ${cls}">
+      <span class="ht">${new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+      <span class="hb">${e.kind === 'issue' && e.num ? `<span class="hn" data-goto="${esc(e.id)}">#${e.num}</span>` : ''}${sentence(e)}
+        ${e.kind === 'issue' ? `<span class="sub">${esc(e.title || '')}</span>` : ''}
+        ${detail ? `<div class="hd">${detail}</div>` : ''}</span>
+    </div>`;
+  }
+  if (openList) out += '</div>';
+  $('timeline').innerHTML = out;
+}
+
+$('timeline').addEventListener('click', e => {
+  const g = e.target.closest('[data-goto]');
+  if (!g) return;
+  openId = g.dataset.goto; statusTab = 'all'; todayFilter = null;
+  document.querySelector('.tabs button[data-view=tracker]').click();
+  renderTracker();
+  document.querySelector(`[data-id="${openId}"]`)?.scrollIntoView({ block: 'center' });
+});
+$('hq').addEventListener('input', e => { hSearch = e.target.value.trim(); renderHistory(); });
+$('hfilter').addEventListener('click', e => {
+  const b = e.target.closest('[data-hk]');
+  if (!b) return;
+  hKind = b.dataset.hk;
+  [...$('hfilter').children].forEach(x => x.classList.toggle('on', x === b));
+  renderHistory();
+});
+$('hexport').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(history, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `accessng-history-${todayStr()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
 
 /* ------------------------------------------------------------------ tracker render */
 
@@ -217,12 +345,21 @@ function renderDetail(i) {
         <button data-act="comadd">Add</button>
       </div>
     </div>
+    ${renderActivity(i)}
     <div class="foot">
       <span class="sub">${i.updatedAt ? 'updated ' + new Date(i.updatedAt).toLocaleString() : ''}</span>
       <span class="spacer"></span>
       <button class="danger" data-act="del">${armedDelete === i.id ? 'Click again to delete #' + i.num : 'Delete issue'}</button>
     </div>
   </div>`;
+}
+
+function renderActivity(i) {
+  const mine = history.filter(e => e.kind === 'issue' && e.id === i.id).slice(0, 8);
+  if (!mine.length) return '';
+  return `<div class="sect activity"><h4>Activity</h4>${mine.map(e => `<div class="hrow">
+      <span class="ht">${new Date(e.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+      <span class="hb">${sentence(e)}</span></div>`).join('')}</div>`;
 }
 
 /* ------------------------------------------------------------------ tracker events */
@@ -235,13 +372,24 @@ $('issues').addEventListener('click', e => {
   const n = Number(e.target.closest('[data-act]')?.dataset.n);
 
   if (act === 'toggle') { openId = openId === issue.id ? null : issue.id; armedDelete = null; renderTracker(); return; }
-  if (act === 'subtoggle') { issue.subtasks[n].done = e.target.checked; touch(issue); renderTracker(); return; }
-  if (act === 'subdel') { issue.subtasks.splice(n, 1); touch(issue); renderTracker(); return; }
+  if (act === 'subtoggle') {
+    issue.subtasks[n].done = e.target.checked;
+    logIssue(issue, 'subtask', { done: e.target.checked, text: issue.subtasks[n].text });
+    touch(issue); renderTracker(); return;
+  }
+  if (act === 'subdel') {
+    logIssue(issue, 'subtask-removed', { text: issue.subtasks[n].text });
+    issue.subtasks.splice(n, 1); touch(issue); renderTracker(); return;
+  }
   if (act === 'subadd') { addSubtask(issue, wrap.querySelector('[data-act=subinput]')); return; }
-  if (act === 'comdel') { issue.comments.splice(n, 1); touch(issue); renderTracker(); return; }
+  if (act === 'comdel') {
+    logIssue(issue, 'comment-removed', { text: issue.comments[n].text });
+    issue.comments.splice(n, 1); touch(issue); renderTracker(); return;
+  }
   if (act === 'comadd') { addComment(issue, wrap.querySelector('[data-act=cominput]')); return; }
   if (act === 'del') {
     if (armedDelete !== issue.id) { armedDelete = issue.id; renderTracker(); setTimeout(() => { if (armedDelete === issue.id) { armedDelete = null; renderTracker(); } }, 6000); return; }
+    logIssue(issue, 'deleted');
     db.issues = db.issues.filter(x => x.id !== issue.id);
     armedDelete = null; openId = null; save(); renderTracker();
   }
@@ -252,6 +400,7 @@ function addSubtask(issue, input) {
   if (!v) return;
   issue.subtasks.push({ text: v, done: false });
   input.value = '';
+  logIssue(issue, 'subtask-added', { text: v });
   touch(issue); renderTracker();
 }
 function addComment(issue, input) {
@@ -259,6 +408,7 @@ function addComment(issue, input) {
   if (!v) return;
   issue.comments.push({ at: new Date().toISOString(), text: v });
   input.value = '';
+  logIssue(issue, 'comment', { text: v });
   touch(issue); renderTracker();
 }
 
@@ -274,7 +424,9 @@ $('issues').addEventListener('input', e => {
   const f = e.target.dataset.field;
   if (!f) return;
   const issue = db.issues.find(i => i.id === e.target.closest('.issue').dataset.id);
+  const from = issue[f];
   issue[f] = e.target.value;
+  noteEdit(issue, f, from);
   touch(issue);
 });
 
@@ -303,6 +455,7 @@ $('newIssue').addEventListener('click', () => {
   issue.createdAt = new Date().toISOString();
   db.issues.unshift(issue);
   openId = issue.id; statusTab = 'active'; todayFilter = null; search = ''; $('q').value = '';
+  logIssue(issue, 'created');
   save(); renderTracker();
   document.querySelector(`[data-id="${issue.id}"] [data-field=title]`)?.select();
 });
@@ -325,6 +478,7 @@ $('restoreFile').addEventListener('change', async e => {
     const keep = db.issues.length;
     if (keep && !window.confirm(`Replace the ${keep} issue(s) in this console with ${incoming.issues.length} from ${file.name}?\n\nThe current data is kept in data\\backups\\.`)) return;
     db = incoming;
+    logHistory({ kind: 'issue', action: 'imported', count: incoming.issues.length, file: file.name });
     save(); renderTracker();
     $('saveflag').textContent = `imported ${incoming.issues.length}`;
   } catch (err) {
@@ -468,6 +622,7 @@ function startTail() {
               : `Deploy of ${final.job.branch} to ${final.job.env} failed — see the log above. The previous release is still live.`,
            ok ? 'ok' : 'bad');
     loadDeploy(true);
+    loadHistory();
   };
   tick();
 }
@@ -487,10 +642,12 @@ document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === 'view-' + b.dataset.view));
   localStorage.setItem('console-tab', b.dataset.view);
   if (b.dataset.view === 'deploy' && !deployLoaded) { deployLoaded = true; loadDeploy(true); }
+  if (b.dataset.view === 'history') renderHistory();
 }));
 
 const startTabName = localStorage.getItem('console-tab');
-if (startTabName === 'deploy') document.querySelector('.tabs button[data-view=deploy]').click();
+if (startTabName && startTabName !== 'tracker') document.querySelector(`.tabs button[data-view=${startTabName}]`)?.click();
 
 loadDb();
+loadHistory();
 setInterval(() => { if (deployLoaded && !tailing) loadDeploy(); }, 30000);
