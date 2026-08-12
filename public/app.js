@@ -3,15 +3,21 @@ const $ = id => document.getElementById(id);
 const api = (p, q = '', opts = {}) => fetch(`/api/${p}?t=${T}${q}`, opts).then(r => r.json());
 const esc = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
 
+const CLOSED = ['done', 'declined'];
+const isClosed = i => CLOSED.includes(i.status);
+
 const STATUSES = [
-  { k: 'active', label: 'Active', match: i => i.status !== 'done' },
+  { k: 'active', label: 'Active', match: i => !isClosed(i) },
   { k: 'inprogress', label: 'In progress', match: i => i.status === 'inprogress' },
   { k: 'waiting', label: 'Waiting', match: i => i.status === 'waiting' },
   { k: 'done', label: 'Done', match: i => i.status === 'done' },
+  { k: 'declined', label: 'Declined', match: i => i.status === 'declined' },
   { k: 'all', label: 'All', match: () => true }
 ];
-const STATUS_LABEL = { open: 'open', inprogress: 'in progress', waiting: 'waiting', done: 'done' };
+const ALL_STATUSES = ['open', 'inprogress', 'waiting', 'done', 'declined'];
+const STATUS_LABEL = { open: 'open', inprogress: 'in progress', waiting: 'waiting', done: 'done', declined: 'declined' };
 const PRIO_RANK = { high: 0, medium: 1, low: 2 };
+const OUTCOME_LABEL = { done: 'Outcome — what was actually done', declined: 'Why this was declined' };
 
 let db = { version: 1, nextNum: 1, issues: [] };
 let statusTab = 'active', todayFilter = null, openId = null, search = '', areaFilter = '';
@@ -37,7 +43,8 @@ function normalizeIssue(raw, idx) {
     description: pick('description', 'desc', 'body', 'details') || '',
     area: pick('area', 'category', 'component') || '',
     priority: ['high', 'medium', 'low'].includes(prio) ? prio : 'medium',
-    status: ['open', 'inprogress', 'waiting', 'done'].includes(status) ? status : 'open',
+    status: ALL_STATUSES.includes(status) ? status : 'open',
+    outcome: pick('outcome', 'resolution', 'closingNote') || '',
     deadline: (pick('deadline', 'due', 'dueDate', 'due_date') || '').slice(0, 10),
     subtasks: (Array.isArray(subsRaw) ? subsRaw : []).map(s => typeof s === 'string'
       ? { text: s, done: false }
@@ -65,18 +72,31 @@ function normalizeDb(raw) {
 async function loadDb() {
   const raw = await api('tracker');
   db = (raw && Array.isArray(raw.issues)) ? raw : { version: 1, nextNum: 1, issues: [] };
+  db.issues.forEach(i => {
+    i.outcome = i.outcome || '';
+    i.subtasks = i.subtasks || [];
+    i.comments = i.comments || [];
+    if (!ALL_STATUSES.includes(i.status)) i.status = 'open';
+  });
   if (!db.nextNum) db.nextNum = Math.max(0, ...db.issues.map(i => i.num || 0)) + 1;
   renderTracker();
 }
 
-function save() {
+let pendingReplace = false;
+function save(replace) {
+  if (replace) pendingReplace = true;
   $('saveflag').textContent = 'saving…';
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    const r = await api('tracker', '', {
+    const q = pendingReplace ? '&replace=1' : '';
+    pendingReplace = false;
+    const r = await api('tracker', q, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(db)
     });
-    $('saveflag').textContent = r.ok ? 'saved ' + new Date().toLocaleTimeString() : 'SAVE FAILED';
+    if (r.ok) { $('saveflag').textContent = 'saved ' + new Date().toLocaleTimeString(); return; }
+    $('saveflag').textContent = 'SAVE REFUSED';
+    alert(r.error || 'The save was refused.');
+    loadDb();
   }, 350);
 }
 
@@ -212,7 +232,7 @@ $('hexport').addEventListener('click', () => {
 /* ------------------------------------------------------------------ tracker render */
 
 function dueClass(d, status) {
-  if (!d || status === 'done') return '';
+  if (!d || CLOSED.includes(status)) return '';
   const t = todayStr();
   if (d < t) return 'over';
   const in7 = new Date(Date.now() + 7 * 864e5).toLocaleDateString('en-CA');
@@ -221,7 +241,7 @@ function dueClass(d, status) {
 
 function counters() {
   const t = todayStr(), in7 = new Date(Date.now() + 7 * 864e5).toLocaleDateString('en-CA');
-  const live = db.issues.filter(i => i.status !== 'done');
+  const live = db.issues.filter(i => !isClosed(i));
   return {
     overdue: live.filter(i => i.deadline && i.deadline < t).length,
     soon: live.filter(i => i.deadline && i.deadline >= t && i.deadline <= in7).length,
@@ -231,16 +251,16 @@ function counters() {
 }
 
 const TODAY_DEFS = [
-  { k: 'overdue', label: 'Overdue', alert: true, match: i => i.status !== 'done' && i.deadline && i.deadline < todayStr() },
-  { k: 'soon', label: 'Due in 7 days', match: i => i.status !== 'done' && i.deadline && i.deadline >= todayStr() && i.deadline <= new Date(Date.now() + 7 * 864e5).toLocaleDateString('en-CA') },
-  { k: 'high', label: 'High priority', match: i => i.status !== 'done' && i.priority === 'high' },
+  { k: 'overdue', label: 'Overdue', alert: true, match: i => !isClosed(i) && i.deadline && i.deadline < todayStr() },
+  { k: 'soon', label: 'Due in 7 days', match: i => !isClosed(i) && i.deadline && i.deadline >= todayStr() && i.deadline <= new Date(Date.now() + 7 * 864e5).toLocaleDateString('en-CA') },
+  { k: 'high', label: 'High priority', match: i => !isClosed(i) && i.priority === 'high' },
   { k: 'inprogress', label: 'In progress', match: i => i.status === 'inprogress' }
 ];
 
 function matchesSearch(i, q) {
   if (!q) return true;
   if (q.startsWith('#')) return String(i.num) === q.slice(1);
-  const hay = [i.title, i.description, i.key, i.area, '#' + i.num,
+  const hay = [i.title, i.description, i.outcome, i.key, i.area, '#' + i.num,
     ...i.subtasks.map(s => s.text), ...i.comments.map(c => c.text)].join('\n').toLowerCase();
   return q.toLowerCase().split(/\s+/).every(w => hay.includes(w));
 }
@@ -248,11 +268,14 @@ function matchesSearch(i, q) {
 function visibleIssues() {
   const st = STATUSES.find(s => s.k === statusTab);
   const tf = TODAY_DEFS.find(d => d.k === todayFilter);
+  // The issue you have open stays on screen even once its new status drops it from the filter,
+  // so closing one out doesn't yank the outcome box away mid-sentence.
   return db.issues
-    .filter(i => (tf ? tf.match(i) : st.match(i)))
-    .filter(i => !areaFilter || i.area === areaFilter)
-    .filter(i => matchesSearch(i, search))
-    .sort((a, b) => (a.status === 'done') - (b.status === 'done')
+    .filter(i => i.id === openId || (
+      (tf ? tf.match(i) : st.match(i))
+      && (!areaFilter || i.area === areaFilter)
+      && matchesSearch(i, search)))
+    .sort((a, b) => isClosed(a) - isClosed(b)
       || PRIO_RANK[a.priority] - PRIO_RANK[b.priority]
       || (a.deadline || '9999').localeCompare(b.deadline || '9999')
       || a.num - b.num);
@@ -285,7 +308,8 @@ function renderIssue(i) {
     <div class="irow" data-act="toggle">
       <div class="inum">#${i.num}</div>
       <div class="imain">
-        <div class="ititle${i.status === 'done' ? ' done' : ''}">${esc(i.title)}</div>
+        <div class="ititle${isClosed(i) ? ' done' : ''}">${esc(i.title)}</div>
+        ${isClosed(i) && i.outcome ? `<div class="outline">${esc(i.outcome.split('\n')[0])}</div>` : ''}
         <div class="imeta">
           <span class="chip st-${i.status}">${STATUS_LABEL[i.status]}</span>
           ${i.priority !== 'low' ? `<span class="chip ${i.priority === 'high' ? 'hi' : 'med'}">${i.priority}</span>` : ''}
@@ -308,7 +332,7 @@ function renderDetail(i) {
     </div>
     <div class="fields">
       <div><label class="f">Status</label>
-        <select data-field="status" style="width:100%">${['open', 'inprogress', 'waiting', 'done']
+        <select data-field="status" style="width:100%">${ALL_STATUSES
           .map(s => `<option value="${s}"${i.status === s ? ' selected' : ''}>${STATUS_LABEL[s]}</option>`).join('')}</select></div>
       <div><label class="f">Priority</label>
         <select data-field="priority" style="width:100%">${['high', 'medium', 'low']
@@ -321,6 +345,12 @@ function renderDetail(i) {
       <label class="f">Description</label>
       <textarea data-field="description">${esc(i.description)}</textarea>
     </div>
+    ${isClosed(i) ? `<div class="sect outcome${i.outcome ? '' : ' wanted'}">
+      <label class="f">${OUTCOME_LABEL[i.status]}</label>
+      <textarea data-field="outcome" placeholder="${i.status === 'done'
+        ? 'What shipped, which PR or branch, anything that would help you redo it later.'
+        : 'Why you are not doing this, so it never comes back for a second decision.'}">${esc(i.outcome)}</textarea>
+    </div>` : ''}
     <div class="sect">
       <h4>Subtasks ${i.subtasks.length ? `(${i.subtasks.filter(s => s.done).length}/${i.subtasks.length})` : ''}</h4>
       ${i.subtasks.map((s, n) => `<div class="subtask">
@@ -349,7 +379,9 @@ function renderDetail(i) {
     <div class="foot">
       <span class="sub">${i.updatedAt ? 'updated ' + new Date(i.updatedAt).toLocaleString() : ''}</span>
       <span class="spacer"></span>
-      <button class="danger" data-act="del">${armedDelete === i.id ? 'Click again to delete #' + i.num : 'Delete issue'}</button>
+      ${isClosed(i)
+        ? `<span class="sub">Kept as a record — ${STATUS_LABEL[i.status]} issues can't be deleted.</span>`
+        : `<button class="danger" data-act="del">${armedDelete === i.id ? 'Click again to delete #' + i.num : 'Delete issue'}</button>`}
     </div>
   </div>`;
 }
@@ -388,6 +420,7 @@ $('issues').addEventListener('click', e => {
   }
   if (act === 'comadd') { addComment(issue, wrap.querySelector('[data-act=cominput]')); return; }
   if (act === 'del') {
+    if (isClosed(issue)) return;
     if (armedDelete !== issue.id) { armedDelete = issue.id; renderTracker(); setTimeout(() => { if (armedDelete === issue.id) { armedDelete = null; renderTracker(); } }, 6000); return; }
     logIssue(issue, 'deleted');
     db.issues = db.issues.filter(x => x.id !== issue.id);
@@ -431,7 +464,12 @@ $('issues').addEventListener('input', e => {
 });
 
 $('issues').addEventListener('change', e => {
-  if (['status', 'priority', 'deadline'].includes(e.target.dataset.field)) renderTracker();
+  const f = e.target.dataset.field;
+  if (!['status', 'priority', 'deadline'].includes(f)) return;
+  renderTracker();
+  if (f !== 'status' || !CLOSED.includes(e.target.value)) return;
+  const box = document.querySelector(`[data-id="${openId}"] [data-field=outcome]`);
+  if (box && !box.value) box.focus();
 });
 
 $('today').addEventListener('click', e => {
@@ -479,7 +517,7 @@ $('restoreFile').addEventListener('change', async e => {
     if (keep && !window.confirm(`Replace the ${keep} issue(s) in this console with ${incoming.issues.length} from ${file.name}?\n\nThe current data is kept in data\\backups\\.`)) return;
     db = incoming;
     logHistory({ kind: 'issue', action: 'imported', count: incoming.issues.length, file: file.name });
-    save(); renderTracker();
+    save(true); renderTracker();
     $('saveflag').textContent = `imported ${incoming.issues.length}`;
   } catch (err) {
     alert('Could not import that file: ' + err.message);

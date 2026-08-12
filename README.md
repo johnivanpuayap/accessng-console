@@ -14,7 +14,20 @@ so another site open in your browser cannot drive a deploy.
 ## Tracker
 
 Issues with a permanent `#num`, optional ticket key, description, area, priority, deadline,
-subtask checklist, status (`open` / `in progress` / `waiting` / `done`) and private comments.
+subtask checklist, status (`open` / `in progress` / `waiting` / `done` / `declined`) and private
+comments.
+
+It is a working list *and* a reference. Closed issues are never removed, so the tracker doubles as
+a guide to how things were done:
+
+- **Done** and **Declined** issues each carry an **outcome** note — what shipped and where to look
+  for it, or why something was turned down. The field is highlighted until you fill it in, and the
+  first line shows on the row so a closed list reads as a summary of decisions.
+- A closed issue **cannot be deleted**; the Delete button is replaced by a note saying so. Only
+  issues that were never finished can be removed, for genuine mistakes.
+- **Declined** is for work you have decided against. It drops out of Active and every Today count
+  and sits in its own tab with the reason attached, so it never comes back for a second decision.
+- Outcomes are searchable along with everything else.
 
 - The **Today** strip counts overdue, due-in-7-days, high-priority and in-progress issues; click
   one to filter by it.

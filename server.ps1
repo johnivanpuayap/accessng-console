@@ -347,8 +347,20 @@ function Read-History([int]$limit) {
     @($lines | ForEach-Object { try { $_ | ConvertFrom-Json } catch {} })
 }
 
-function Write-Tracker([string]$json) {
-    $null = $json | ConvertFrom-Json
+function Write-Tracker([string]$json, [bool]$allowClosedRemoval = $false) {
+    $incoming = $json | ConvertFrom-Json
+
+    # Closed work is the record. A normal save must never drop a done/declined issue; only an
+    # explicit Restore (which the page confirms first) is allowed to replace the whole set.
+    if (-not $allowClosedRemoval -and (Test-Path $trackerPath)) {
+        $current = (Read-Tracker) | ConvertFrom-Json
+        $keep = @($incoming.issues | ForEach-Object { $_.id })
+        $lost = @($current.issues | Where-Object { $_.status -in @('done', 'declined') -and $keep -notcontains $_.id })
+        if ($lost.Count -gt 0) {
+            $names = ($lost | ForEach-Object { "#$($_.num) $($_.title)" }) -join '; '
+            throw "Refused: this save would drop $($lost.Count) closed issue(s) that are kept as a record - $names"
+        }
+    }
     if (Test-Path $trackerPath) {
         $stamp  = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
         $bakDir = Join-Path $dataDir 'backups'
@@ -439,7 +451,7 @@ try {
                     if ($req.HttpMethod -eq 'GET') {
                         Send-Text $ctx 200 'application/json; charset=utf-8' (Read-Tracker)
                     } else {
-                        try   { Write-Tracker (Read-Body $ctx); Send-Json $ctx @{ ok = $true } }
+                        try   { Write-Tracker (Read-Body $ctx) ($req.QueryString['replace'] -eq '1'); Send-Json $ctx @{ ok = $true } }
                         catch { Send-Json $ctx @{ ok = $false; error = $_.Exception.Message } 400 }
                     }
                 }
