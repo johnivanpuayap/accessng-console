@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>accessNG Console</title>
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">accessNG Console</span>
+  <nav class="tabs">
+    <button data-view="tracker" class="on">Tracker</button>
+    <button data-view="deploy">Deploy</button>
+  </nav>
+  <span class="spacer"></span>
+  <span class="saveflag" id="saveflag"></span>
+</div>
+
+<div class="wrap">
+
+  <section class="view on" id="view-tracker">
+    <div class="today" id="today"></div>
+
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Search titles, descriptions, subtasks, comments, #num">
+      <select id="areaFilter"><option value="">All areas</option></select>
+      <button class="primary" id="newIssue">New issue</button>
+      <button id="backup">Backup</button>
+      <button id="restore">Restore</button>
+      <input type="file" id="restoreFile" accept="application/json,.json" hidden>
+    </div>
+
+    <div class="statustabs" id="statustabs"></div>
+    <div class="issues" id="issues"></div>
+  </section>
+
+  <section class="view" id="view-deploy">
+    <div class="sub">accesstest first, sign off, then accessNG. Branch names are the record of what shipped.</div>
+    <div class="bar">
+      <button id="refresh">Refresh from origin</button>
+      <span class="sub" id="fetched"></span>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <h2>Master &mdash; structure_update</h2>
+        <div class="ref" id="m-ref">&hellip;</div>
+        <div class="subject" id="m-sub"></div>
+      </div>
+      <div class="card">
+        <h2>accesstest</h2>
+        <div class="ref" id="t-ref">&hellip;</div>
+        <div id="t-pill"></div>
+      </div>
+      <div class="card">
+        <h2>accessNG &mdash; production</h2>
+        <div class="ref" id="p-ref">&hellip;</div>
+        <div id="p-pill"></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <div class="act">
+        <h3>Deploy accesstest</h3>
+        <div class="env">Cut the candidate from structure_update and publish it to the test site.</div>
+        <div class="plan" id="test-plan">&hellip;</div>
+        <div id="test-changes"></div>
+        <button class="go" id="go-test" disabled>Cut &amp; deploy accesstest</button>
+      </div>
+      <div class="act">
+        <h3>Deploy accessNG</h3>
+        <div class="env">Promote the tested candidate, unchanged, to production.</div>
+        <div class="plan" id="ng-plan">&hellip;</div>
+        <div id="ng-changes"></div>
+        <div id="ng-arm"></div>
+        <button class="go prod" id="go-ng" disabled>Promote &amp; deploy accessNG</button>
+      </div>
+    </div>
+
+    <div class="banner" id="banner"></div>
+
+    <div class="console" id="console">
+      <div class="chead">
+        <span class="status" id="c-status">&mdash;</span>
+        <span class="prog"><i id="c-prog"></i></span>
+        <span id="c-pct"></span>
+      </div>
+      <pre class="log" id="c-log"></pre>
+    </div>
+
+    <div class="note">Backups land in <code>backups\&lt;env&gt;\</code> inside the repo before every upload.
+      A failed deploy leaves the previous release live and the backup intact.</div>
+  </section>
+
+</div>
+
+<script>window.CONSOLE_TOKEN = '{{TOKEN}}';</script>
+<script src="/app.js"></script>
+</body>
+</html>
