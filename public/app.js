@@ -17,6 +17,8 @@ const STATUSES = [
 const ALL_STATUSES = ['open', 'inprogress', 'waiting', 'done', 'declined'];
 const STATUS_LABEL = { open: 'open', inprogress: 'in progress', waiting: 'waiting', done: 'done', declined: 'declined' };
 const PRIO_RANK = { high: 0, medium: 1, low: 2 };
+const SOURCES = ['request', 'finding'];
+const isRequest = i => i.source === 'request';
 const OUTCOME_LABEL = { done: 'Outcome — what was actually done', declined: 'Why this was declined' };
 
 let db = { version: 1, nextNum: 1, issues: [] };
@@ -43,6 +45,7 @@ function normalizeIssue(raw, idx) {
     description: pick('description', 'desc', 'body', 'details') || '',
     area: pick('area', 'category', 'component') || '',
     priority: ['high', 'medium', 'low'].includes(prio) ? prio : 'medium',
+    source: String(pick('source', 'origin') || '').toLowerCase() === 'request' ? 'request' : 'finding',
     status: ALL_STATUSES.includes(status) ? status : 'open',
     outcome: pick('outcome', 'resolution', 'closingNote') || '',
     deadline: (pick('deadline', 'due', 'dueDate', 'due_date') || '').slice(0, 10),
@@ -74,6 +77,7 @@ async function loadDb() {
   db = (raw && Array.isArray(raw.issues)) ? raw : { version: 1, nextNum: 1, issues: [] };
   db.issues.forEach(i => {
     i.outcome = i.outcome || '';
+    i.source = i.source === 'request' ? 'request' : 'finding';
     i.subtasks = i.subtasks || [];
     i.comments = i.comments || [];
     if (!ALL_STATUSES.includes(i.status)) i.status = 'open';
@@ -150,7 +154,7 @@ function sentence(e) {
   }
   const f = esc(e.field || '');
   switch (e.action) {
-    case 'created': return 'Created';
+    case 'created': return e.source === 'request' ? 'Created as a <b>request</b>' : 'Created';
     case 'deleted': return 'Deleted';
     case 'status': return `Status ${esc(STATUS_LABEL[e.from] || e.from || '—')} → <b>${esc(STATUS_LABEL[e.to] || e.to)}</b>`;
     case 'edited': return e.field === 'description' || e.field === 'title'
@@ -243,6 +247,7 @@ function counters() {
   const t = todayStr(), in7 = new Date(Date.now() + 7 * 864e5).toLocaleDateString('en-CA');
   const live = db.issues.filter(i => !isClosed(i));
   return {
+    requests: live.filter(isRequest).length,
     overdue: live.filter(i => i.deadline && i.deadline < t).length,
     soon: live.filter(i => i.deadline && i.deadline >= t && i.deadline <= in7).length,
     high: live.filter(i => i.priority === 'high').length,
@@ -251,6 +256,7 @@ function counters() {
 }
 
 const TODAY_DEFS = [
+  { k: 'requests', label: 'Requests', match: i => !isClosed(i) && isRequest(i) },
   { k: 'overdue', label: 'Overdue', alert: true, match: i => !isClosed(i) && i.deadline && i.deadline < todayStr() },
   { k: 'soon', label: 'Due in 7 days', match: i => !isClosed(i) && i.deadline && i.deadline >= todayStr() && i.deadline <= new Date(Date.now() + 7 * 864e5).toLocaleDateString('en-CA') },
   { k: 'high', label: 'High priority', match: i => !isClosed(i) && i.priority === 'high' },
@@ -260,7 +266,7 @@ const TODAY_DEFS = [
 function matchesSearch(i, q) {
   if (!q) return true;
   if (q.startsWith('#')) return String(i.num) === q.slice(1);
-  const hay = [i.title, i.description, i.outcome, i.key, i.area, '#' + i.num,
+  const hay = [i.title, i.description, i.outcome, i.key, i.area, i.source, '#' + i.num,
     ...i.subtasks.map(s => s.text), ...i.comments.map(c => c.text)].join('\n').toLowerCase();
   return q.toLowerCase().split(/\s+/).every(w => hay.includes(w));
 }
@@ -275,7 +281,10 @@ function visibleIssues() {
       (tf ? tf.match(i) : st.match(i))
       && (!areaFilter || i.area === areaFilter)
       && matchesSearch(i, search)))
+    // Requests outrank findings regardless of priority: someone is waiting on a request,
+    // whereas a finding is work we chose ourselves and can reschedule.
     .sort((a, b) => isClosed(a) - isClosed(b)
+      || isRequest(b) - isRequest(a)
       || PRIO_RANK[a.priority] - PRIO_RANK[b.priority]
       || (a.deadline || '9999').localeCompare(b.deadline || '9999')
       || a.num - b.num);
@@ -311,6 +320,7 @@ function renderIssue(i) {
         <div class="ititle${isClosed(i) ? ' done' : ''}">${esc(i.title)}</div>
         ${isClosed(i) && i.outcome ? `<div class="outline">${esc(i.outcome.split('\n')[0])}</div>` : ''}
         <div class="imeta">
+          ${isRequest(i) ? '<span class="chip req">request</span>' : ''}
           <span class="chip st-${i.status}">${STATUS_LABEL[i.status]}</span>
           ${i.priority !== 'low' ? `<span class="chip ${i.priority === 'high' ? 'hi' : 'med'}">${i.priority}</span>` : ''}
           ${i.area ? `<span class="chip">${esc(i.area)}</span>` : ''}
@@ -331,6 +341,9 @@ function renderDetail(i) {
       <input style="width:100%" data-field="title" value="${esc(i.title)}">
     </div>
     <div class="fields">
+      <div><label class="f">Source</label>
+        <select data-field="source" style="width:100%">${SOURCES
+          .map(s => `<option value="${s}"${i.source === s ? ' selected' : ''}>${s}</option>`).join('')}</select></div>
       <div><label class="f">Status</label>
         <select data-field="status" style="width:100%">${ALL_STATUSES
           .map(s => `<option value="${s}"${i.status === s ? ' selected' : ''}>${STATUS_LABEL[s]}</option>`).join('')}</select></div>
@@ -465,7 +478,16 @@ $('issues').addEventListener('input', e => {
 
 $('issues').addEventListener('change', e => {
   const f = e.target.dataset.field;
-  if (!['status', 'priority', 'deadline'].includes(f)) return;
+  if (!['status', 'priority', 'deadline', 'source'].includes(f)) return;
+  if (f === 'source' && e.target.value === 'request') {
+    const issue = db.issues.find(i => i.id === e.target.closest('.issue').dataset.id);
+    if (issue.priority !== 'high') {
+      const from = issue.priority;
+      issue.priority = 'high';
+      logIssue(issue, 'edited', { field: 'priority', from, to: 'high' });
+      touch(issue);
+    }
+  }
   renderTracker();
   if (f !== 'status' || !CLOSED.includes(e.target.value)) return;
   const box = document.querySelector(`[data-id="${openId}"] [data-field=outcome]`);
@@ -486,17 +508,21 @@ $('statustabs').addEventListener('click', e => {
 $('q').addEventListener('input', e => { search = e.target.value.trim(); renderTracker(); });
 $('areaFilter').addEventListener('change', e => { areaFilter = e.target.value; renderTracker(); });
 
-$('newIssue').addEventListener('click', () => {
-  const issue = normalizeIssue({ title: '', status: 'open', priority: 'medium' }, 0);
+function createIssue(source) {
+  const request = source === 'request';
+  const issue = normalizeIssue({ title: '', status: 'open', priority: request ? 'high' : 'medium', source }, 0);
   issue.num = db.nextNum++;
-  issue.title = 'New issue';
+  issue.title = request ? 'New request' : 'New issue';
   issue.createdAt = new Date().toISOString();
   db.issues.unshift(issue);
   openId = issue.id; statusTab = 'active'; todayFilter = null; search = ''; $('q').value = '';
-  logIssue(issue, 'created');
+  logIssue(issue, 'created', { source });
   save(); renderTracker();
   document.querySelector(`[data-id="${issue.id}"] [data-field=title]`)?.select();
-});
+}
+
+$('newRequest').addEventListener('click', () => createIssue('request'));
+$('newIssue').addEventListener('click', () => createIssue('finding'));
 
 $('backup').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' });

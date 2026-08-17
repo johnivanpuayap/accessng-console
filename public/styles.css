@@ -46,7 +46,7 @@ label.f { display: block; font-size: 11px; text-transform: uppercase; letter-spa
           color: var(--muted); font-weight: 600; margin-bottom: 4px; }
 
 /* ---------- tracker ---------- */
-.today { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+.today { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 16px; }
 .today button { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
                 text-align: left; display: block; }
 .today button.on { border-color: var(--accent); background: var(--info-bg); }
@@ -73,6 +73,7 @@ label.f { display: block; font-size: 11px; text-transform: uppercase; letter-spa
 .ititle.done { text-decoration: line-through; color: var(--muted); font-weight: 500; }
 .imeta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 5px; font-size: 12px; color: var(--muted); }
 .chip { font-size: 11px; padding: 2px 8px; border-radius: 20px; background: var(--panel-2); border: 1px solid var(--line); }
+.chip.req { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
 .chip.hi { background: var(--danger-bg); color: var(--danger); border-color: transparent; font-weight: 600; }
 .chip.med { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
 .chip.st-open { background: var(--panel-2); }
