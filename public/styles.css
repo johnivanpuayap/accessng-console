@@ -46,7 +46,7 @@ label.f { display: block; font-size: 11px; text-transform: uppercase; letter-spa
           color: var(--muted); font-weight: 600; margin-bottom: 4px; }
 
 /* ---------- tracker ---------- */
-.today { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+.today { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 16px; }
 .today button { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
                 text-align: left; display: block; }
 .today button.on { border-color: var(--accent); background: var(--info-bg); }
@@ -73,6 +73,7 @@ label.f { display: block; font-size: 11px; text-transform: uppercase; letter-spa
 .ititle.done { text-decoration: line-through; color: var(--muted); font-weight: 500; }
 .imeta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 5px; font-size: 12px; color: var(--muted); }
 .chip { font-size: 11px; padding: 2px 8px; border-radius: 20px; background: var(--panel-2); border: 1px solid var(--line); }
+.chip.req { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
 .chip.hi { background: var(--danger-bg); color: var(--danger); border-color: transparent; font-weight: 600; }
 .chip.med { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
 .chip.st-open { background: var(--panel-2); }
@@ -171,3 +172,45 @@ pre.log { margin: 0; padding: 12px 14px; max-height: 400px; overflow: auto; colo
 .activity { border-top: 1px solid var(--line); padding-top: 12px; }
 .activity .hrow { padding: 5px 0; border: none; }
 .bar { display: flex; align-items: center; gap: 10px; margin: 14px 0 18px; }
+
+/* ---------- release banner + restore ---------- */
+.releases { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+@media (max-width: 760px) { .releases { grid-template-columns: 1fr; } }
+.rel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px;
+       display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.rel b { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.rel .reldate { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+.rel code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); }
+.rel .pill { margin-top: 0; }
+
+.restorepanel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+                padding: 12px 14px; margin-bottom: 14px; }
+.restorepanel .bhead { font-size: 12px; color: var(--muted); margin-bottom: 10px;
+                       display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.restorepanel .bhead button { margin-left: auto; }
+.restorepanel .bhead button + button { margin-left: 0; }
+.brow { display: flex; align-items: baseline; gap: 12px; padding: 7px 0;
+        border-top: 1px solid var(--line); flex-wrap: wrap; }
+.brow .bwhen { font-weight: 600; min-width: 165px; }
+.brow code { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); }
+.brow button { margin-left: auto; }
+
+/* ---------- rollback + confirm ---------- */
+.rollback { margin-top: 22px; background: var(--panel); border: 1px solid var(--line);
+            border-radius: 10px; padding: 16px; }
+.rollback h3 { font-size: 15px; margin-bottom: 4px; }
+.rollback .sub { margin-bottom: 12px; }
+.snapenv { margin-bottom: 14px; }
+.snapenv h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
+              font-weight: 600; margin-bottom: 6px; }
+.snap { display: flex; align-items: baseline; gap: 12px; padding: 7px 0;
+        border-top: 1px solid var(--line); flex-wrap: wrap; }
+.snap .swhen { font-weight: 600; min-width: 125px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+.snap .sholds { font-size: 13px; }
+.snap button { margin-left: auto; }
+.arm .armbtns { display: flex; gap: 8px; margin-top: 10px; }
+.arm button.confirm { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+.arm button.confirm.danger { background: var(--danger); color: #fff; }
+.arm.prod { border-width: 2px; }
+.live { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.live.drift { color: var(--danger); font-weight: 600; }

@@ -25,16 +25,19 @@
     <div class="sub" style="margin-bottom:14px">A working list and a permanent record. Nothing closed is ever
       removed &mdash; finished work keeps its outcome so you can read back how it was done, and anything you
       <b>decline</b> is parked with the reason so it never comes up for a second decision.</div>
+    <div class="releases" id="releases"></div>
     <div class="today" id="today"></div>
 
     <div class="toolbar">
       <input type="search" id="q" placeholder="Search titles, descriptions, subtasks, comments, #num">
       <select id="areaFilter"><option value="">All areas</option></select>
-      <button class="primary" id="newIssue">New issue</button>
+      <button class="primary" id="newRequest">New request</button>
+      <button id="newIssue">New issue</button>
       <button id="backup">Backup</button>
       <button id="restore">Restore</button>
       <input type="file" id="restoreFile" accept="application/json,.json" hidden>
     </div>
+
 
     <div class="statustabs" id="statustabs"></div>
     <div class="issues" id="issues"></div>
@@ -71,6 +74,7 @@
         <div class="env">Cut the candidate from structure_update and publish it to the test site.</div>
         <div class="plan" id="test-plan">&hellip;</div>
         <div id="test-changes"></div>
+        <div id="test-arm"></div>
         <button class="go" id="go-test" disabled>Cut &amp; deploy accesstest</button>
       </div>
       <div class="act">
@@ -81,6 +85,14 @@
         <div id="ng-arm"></div>
         <button class="go prod" id="go-ng" disabled>Promote &amp; deploy accessNG</button>
       </div>
+    </div>
+
+    <div class="rollback">
+      <h3>Roll back a release</h3>
+      <div class="sub">Every deploy snapshots the live site first, so each entry below is the release that was
+        live before that run. Restoring uploads it back over the environment &mdash; files only, never the database,
+        and files the newer release added are left in place.</div>
+      <div id="snapshots">&hellip;</div>
     </div>
 
     <div class="banner" id="banner"></div>
