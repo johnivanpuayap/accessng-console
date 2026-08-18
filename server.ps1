@@ -16,6 +16,7 @@ tree is never checked out, so this is safe to run while you have unrelated work 
 param(
     [int]$Port,
     [string]$RepoRoot,
+    [string]$SiteBase,
     [switch]$NoBrowser
 )
 
@@ -28,7 +29,7 @@ $logDir     = Join-Path $root 'logs'
 $configPath = Join-Path $root 'config.json'
 $localCfg   = Join-Path $root 'config.local.json'
 
-$config = @{ port = 8790; repoRoot = 'C:\Users\Lenovo\UberReaderWebInterface' }
+$config = @{ port = 8790; repoRoot = 'C:\Users\Lenovo\UberReaderWebInterface'; siteBase = 'https://www.ereflect.com' }
 foreach ($p in @($configPath, $localCfg)) {
     if (Test-Path $p) {
         $c = Get-Content $p -Raw | ConvertFrom-Json
@@ -37,6 +38,7 @@ foreach ($p in @($configPath, $localCfg)) {
 }
 if ($Port)     { $config.port = $Port }
 if ($RepoRoot) { $config.repoRoot = $RepoRoot }
+if ($SiteBase) { $config.siteBase = $SiteBase }
 
 $repoRoot     = $config.repoRoot
 $deployScript = Join-Path $repoRoot '.claude\skills\deploy-accessng\deploy-accessng.ps1'
@@ -146,6 +148,23 @@ function Get-JobState {
        startedAt = $j.startedAt; endedAt = $j.endedAt; exitCode = $j.exitCode; hasLog = [bool]$j.log }
 }
 
+function Get-LiveVersion([string]$targetEnv) {
+    # What the environment itself says it is running. Only true for releases deployed after
+    # the stamp was introduced; older sites have no such file and report unknown.
+    $url = "$($config.siteBase.TrimEnd('/'))/$targetEnv/deployed-version.txt"
+    try {
+        $r = Invoke-WebRequest -Uri $url -TimeoutSec 8 -UseBasicParsing
+        # A content type the host does not map to text comes back as bytes, and piping those
+        # into ConvertFrom-Json yields an object with no properties instead of an error.
+        $raw = if ($r.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($r.Content) } else { [string]$r.Content }
+        $v = ($raw | ConvertFrom-Json)
+        if (-not $v.branch) { throw 'no branch in the stamp' }
+        @{ known = $true; branch = ($v.branch -replace '^origin/', ''); deployedAt = $v.deployedAt }
+    } catch {
+        @{ known = $false; branch = $null; deployedAt = $null }
+    }
+}
+
 function Get-DeployState([switch]$Refresh) {
     if (-not $Refresh -and $script:Cache.state -and ((Get-Date) - $script:Cache.at).TotalSeconds -lt 25) {
         $s = $script:Cache.state
@@ -193,8 +212,12 @@ function Get-DeployState([switch]$Refresh) {
         if ($lastNg) { $ngPlan.changes = Get-CommitsBetween $lastNg.sha $lastTest.sha }
     }
 
+    $liveTest = Get-LiveVersion 'accesstest'
+    $liveNg   = Get-LiveVersion 'accessNG'
+
     $state = @{
         ok = $true; repo = $repoRoot; fetchedAt = (Get-Date).ToString('o'); master = $master
+        liveTest = $liveTest; liveNg = $liveNg
         test = $(if ($lastTest) { @{ name = $lastTest.name; short = $lastTest.sha.Substring(0,7)
                                      sha = $lastTest.sha; current = ($lastTest.sha -eq $master.sha)
                                      behind = @(Get-CommitsBetween $lastTest.sha 'origin/structure_update').Count } } else { $null })
@@ -317,7 +340,15 @@ function Get-Snapshots([string]$targetEnv) {
             # Without a note the release has to be inferred: a snapshot is the site as it was
             # before that run, so it holds the newest release cut on or before the day before.
             $holds = $null; $inferred = $true
-            if ($note -and $note.replacedWith -and $note.replacedWith -like 'origin/*') {
+            # A snapshot of a stamped release carries the stamp, so what it holds is a fact.
+            $stampPath = Join-Path $run.FullName 'deployed-version.txt'
+            if (Test-Path -LiteralPath $stampPath) {
+                try {
+                    $stamp = (Get-Content -LiteralPath $stampPath -Raw) | ConvertFrom-Json
+                    if ($stamp.branch) { $holds = ($stamp.branch -replace '^origin/', ''); $inferred = $false }
+                } catch {}
+            }
+            if (-not $holds -and $note -and $note.replacedWith -and $note.replacedWith -like 'origin/*') {
                 $prior = $releases | Where-Object { $_.label -lt ($note.replacedWith -replace '^origin/release/(ng|test)/', '') } | Select-Object -First 1
                 if ($prior) { $holds = $prior.name }
             }

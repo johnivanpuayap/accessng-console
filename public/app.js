@@ -591,14 +591,21 @@ function renderDeploy(s) {
   $('m-ref').innerHTML = `structure_update <span class="sha">${esc(s.master.short)}</span>`;
   $('m-sub').textContent = s.master.subject;
 
-  const cell = (node, pill, info) => {
+  const liveLine = (info, live) => {
+    if (!live || !live.known) return '<div class="sub">live version not stamped yet</div>';
+    const same = info && live.branch === info.name;
+    return `<div class="live${same ? '' : ' drift'}">site reports <code>${esc(live.branch)}</code>${
+      same ? '' : ' &mdash; does not match the branch above'}</div>`;
+  };
+
+  const cell = (node, pill, info, live) => {
     if (!info) { $(node).textContent = 'nothing deployed yet'; $(pill).innerHTML = ''; return; }
     $(node).innerHTML = `${esc(info.name)} <span class="sha">${esc(info.short)}</span>`;
-    $(pill).innerHTML = info.current ? '<span class="pill ok">up to date with master</span>'
-                                     : '<span class="pill warn">behind master</span>';
+    $(pill).innerHTML = (info.current ? '<span class="pill ok">up to date with master</span>'
+                                      : '<span class="pill warn">behind master</span>') + liveLine(info, live);
   };
-  cell('t-ref', 't-pill', s.test);
-  cell('p-ref', 'p-pill', s.prod);
+  cell('t-ref', 't-pill', s.test, s.liveTest);
+  cell('p-ref', 'p-pill', s.prod, s.liveNg);
 
   const tp = s.plans.accesstest;
   const verb = { create: 'Cut', update: 'Fast-forward', redeploy: 'Re-deploy' }[tp.action];
