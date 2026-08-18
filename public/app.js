@@ -661,6 +661,64 @@ $('go-test').addEventListener('click', () => {
 });
 $('refresh').addEventListener('click', () => loadDeploy(true));
 
+/* ------------------------------------------------------------------ rollback */
+
+function snapRow(s) {
+  const when = s.takenAt.replace('T', ' ').slice(0, 16);
+  const holds = s.holds
+    ? `${esc(s.holds)}${s.inferred ? ' <span class="sub">(inferred)</span>' : ''}`
+    : '<span class="sub">release unknown</span>';
+  const size = s.bytes ? ` · ${(s.bytes / 1048576).toFixed(0)} MB` : '';
+  return `<div class="snap"><span class="swhen">${esc(when)}</span>
+    <span class="sholds">${holds}</span><span class="sub">${esc(s.id)}${size}</span>
+    <button data-env="${esc(s.env)}" data-id="${esc(s.id)}">Restore this</button></div>`;
+}
+
+async function loadSnapshots() {
+  const r = await api('snapshots');
+  if (!r.ok) { $('snapshots').innerHTML = '<div class="sub">Could not read the backups folder.</div>'; return; }
+  const block = (env, list) => `<div class="snapenv"><h4>${env}</h4>${
+    list.length ? list.map(snapRow).join('') : '<div class="sub">No snapshots yet.</div>'}</div>`;
+  $('snapshots').innerHTML = block('accesstest', r.accesstest) + block('accessNG', r.accessNG) +
+    `<div class="armhost" id="restore-arm"></div>`;
+}
+
+$('snapshots').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-id]');
+  if (!btn) return;
+  const { env, id } = btn.dataset;
+  askConfirm($('restore-arm'),
+    `<b>This overwrites ${esc(env)}.</b>Upload the snapshot taken <code>${esc(id)}</code> back over
+     <code>${esc(env)}</code>. The live site is backed up first. Files only — the database is not touched.`,
+    `Yes — restore ${env}`, env === 'accessNG', () => startRestore(env, id));
+});
+
+async function startRestore(env, id) {
+  $('go-test').disabled = $('go-ng').disabled = true;
+  banner('', null);
+  const r = await api('restore', `&env=${env}&id=${encodeURIComponent(id)}`, { method: 'POST' });
+  if (!r.ok) { banner(r.error, 'bad'); loadDeploy(); return; }
+  offset = 0; lastPhase = null;
+  $('c-log').textContent = '';
+  $('c-prog').style.width = '0';
+  $('console').classList.add('on');
+  $('c-status').textContent = `restoring ${env} — ${id}`;
+  startTail();
+}
+
+async function startDeploy(env) {
+  $('go-test').disabled = $('go-ng').disabled = true;
+  banner('', null);
+  const r = await api('deploy', `&env=${env}`);
+  if (!r.ok) { banner(r.error, 'bad'); loadDeploy(); return; }
+  offset = 0; lastPhase = null;
+  $('c-log').textContent = '';
+  $('c-prog').style.width = '0';
+  $('console').classList.add('on');
+  $('c-status').textContent = `deploying ${env} — ${r.branch}`;
+  startTail();
+}
+
 function banner(text, kind) {
   const b = $('banner');
   b.className = 'banner' + (kind ? ' on ' + kind : '');
@@ -732,7 +790,7 @@ document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === 'view-' + b.dataset.view));
   localStorage.setItem('console-tab', b.dataset.view);
-  if (b.dataset.view === 'deploy' && !deployLoaded) { deployLoaded = true; loadDeploy(true); }
+  if (b.dataset.view === 'deploy' && !deployLoaded) { deployLoaded = true; loadDeploy(true); loadSnapshots(); }
   if (b.dataset.view === 'history') renderHistory();
 }));
 

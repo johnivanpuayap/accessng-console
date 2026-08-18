@@ -87,6 +87,14 @@
       </div>
     </div>
 
+    <div class="rollback">
+      <h3>Roll back a release</h3>
+      <div class="sub">Every deploy snapshots the live site first, so each entry below is the release that was
+        live before that run. Restoring uploads it back over the environment &mdash; files only, never the database,
+        and files the newer release added are left in place.</div>
+      <div id="snapshots">&hellip;</div>
+    </div>
+
     <div class="banner" id="banner"></div>
 
     <div class="console" id="console">

@@ -43,6 +43,7 @@ $deployScript = Join-Path $repoRoot '.claude\skills\deploy-accessng\deploy-acces
 $trackerPath  = Join-Path $dataDir 'tracker.json'
 $historyPath  = Join-Path $dataDir 'history.jsonl'
 $origin       = "http://localhost:$($config.port)"
+$backupsKept  = 10
 
 # Injected into the page and required on every /api/ call: a page served from here can read it,
 # a site in another tab cannot, so no other origin can drive a deploy.
@@ -267,6 +268,113 @@ Set-Content -LiteralPath $exitFile -Value $code -Encoding ASCII
 exit $code
 '@
 
+$restoreTemplate = @'
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
+$ErrorActionPreference = 'Continue'
+
+$deploy   = '@@DEPLOY@@'
+$snapshot = '@@SNAPSHOT@@'
+$remote   = '@@REMOTE@@'
+$id       = '@@ID@@'
+$exitFile = '@@EXITFILE@@'
+
+$code = 1
+try {
+    Write-Host "=== Restore $remote to the snapshot taken $id ==="
+    Write-Host "  source: $snapshot"
+    Write-Host "  the live site is backed up first, so this rollback can itself be rolled back"
+    Write-Host ""
+
+    & $deploy -UploadFrom $snapshot -RemotePath $remote
+    if ($LASTEXITCODE -ne 0) { throw "deploy-accessng.ps1 exited with $LASTEXITCODE" }
+
+    Write-Host ""
+    Write-Host "=== CONSOLE OK: $remote restored to $id ==="
+    $code = 0
+} catch {
+    Write-Host ""
+    Write-Host "=== CONSOLE FAILED: $($_.Exception.Message) ==="
+    $code = 1
+}
+Set-Content -LiteralPath $exitFile -Value $code -Encoding ASCII
+exit $code
+'@
+
+function Get-Snapshots([string]$targetEnv) {
+    $envDir = Join-Path (Join-Path $repoRoot 'backups') $targetEnv
+    if (-not (Test-Path $envDir)) { return @() }
+
+    $releases = (Get-RemoteReleases)[$(if ($targetEnv -eq 'accessNG') { 'ng' } else { 'test' })]
+    $out = @()
+    foreach ($day in @(Get-ChildItem $envDir -Directory | Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}$' })) {
+        foreach ($run in @(Get-ChildItem $day.FullName -Directory | Where-Object { $_.Name -match '^\d{2}-\d{2}$' })) {
+            $takenAt = "$($day.Name)T$($run.Name -replace '-', ':'):00"
+            $note = $null
+            $notePath = Join-Path $run.FullName '_snapshot.json'
+            if (Test-Path -LiteralPath $notePath) {
+                try { $note = (Get-Content -LiteralPath $notePath -Raw) | ConvertFrom-Json } catch {}
+            }
+            # Without a note the release has to be inferred: a snapshot is the site as it was
+            # before that run, so it holds the newest release cut on or before the day before.
+            $holds = $null; $inferred = $true
+            if ($note -and $note.replacedWith -and $note.replacedWith -like 'origin/*') {
+                $prior = $releases | Where-Object { $_.label -lt ($note.replacedWith -replace '^origin/release/(ng|test)/', '') } | Select-Object -First 1
+                if ($prior) { $holds = $prior.name }
+            }
+            if (-not $holds) {
+                $prior = $releases | Where-Object { $_.label -lt $day.Name } | Select-Object -First 1
+                if ($prior) { $holds = $prior.name }
+            } else { $inferred = -not $note }
+            $out += @{ id = "$($day.Name)/$($run.Name)"; env = $targetEnv; takenAt = $takenAt
+                       holds = $holds; inferred = $inferred
+                       replacedWith = $(if ($note) { $note.replacedWith } else { $null })
+                       files = $(if ($note) { $note.files } else { $null })
+                       bytes = $(if ($note) { $note.bytes } else { $null }) }
+        }
+    }
+    @($out | Sort-Object { $_.id } -Descending | Select-Object -First $backupsKept)
+}
+
+function Resolve-SnapshotDir([string]$targetEnv, [string]$id) {
+    if ($id -notmatch '^\d{4}-\d{2}-\d{2}/\d{2}-\d{2}$') { throw "Not a snapshot id: $id" }
+    $dir = Join-Path (Join-Path (Join-Path $repoRoot 'backups') $targetEnv) ($id -replace '/', '\')
+    if (-not (Test-Path -LiteralPath $dir)) { throw "No such snapshot: $targetEnv $id" }
+    if (-not (Test-Path -LiteralPath (Join-Path $dir 'Web.config'))) {
+        throw "Snapshot $id has no Web.config - refusing to upload it over the live site."
+    }
+    (Resolve-Path -LiteralPath $dir).Path
+}
+
+function Start-Restore([string]$targetEnv, [string]$id) {
+    if ($script:Job.running) { throw 'A deploy is already running.' }
+    if ($targetEnv -ne 'accesstest' -and $targetEnv -ne 'accessNG') { throw 'unknown environment' }
+    $dir = Resolve-SnapshotDir $targetEnv $id
+
+    $stamp  = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
+    $log    = Join-Path $logDir "restore-$targetEnv-$stamp.log"
+    $runPs1 = Join-Path $logDir "restore-$targetEnv-$stamp.run.ps1"
+
+    $body = $restoreTemplate.
+        Replace('@@DEPLOY@@',   $deployScript).
+        Replace('@@SNAPSHOT@@', $dir).
+        Replace('@@REMOTE@@',   $targetEnv).
+        Replace('@@ID@@',       $id).
+        Replace('@@EXITFILE@@', "$log.exit")
+    Set-Content -Path $runPs1 -Value $body -Encoding UTF8
+
+    $proc = Start-Process -FilePath 'powershell.exe' `
+        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$runPs1`"") `
+        -WorkingDirectory $repoRoot -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+
+    $script:Job = @{ running = $true; env = $targetEnv; branch = "restore $id"; source = $dir
+                     sha = $null; startedAt = (Get-Date).ToString('o'); endedAt = $null
+                     exitCode = $null; log = $log; proc = $proc }
+    Add-History @{ kind = 'deploy'; action = 'started'; env = $targetEnv; branch = "restore $id"
+                   source = $dir; restore = $true }
+    @{ ok = $true; branch = "restore $id"; log = (Split-Path $log -Leaf) }
+}
+
 function Start-Deploy([string]$targetEnv) {
     if ($script:Job.running) { throw 'A deploy is already running.' }
 
@@ -368,7 +476,7 @@ function Write-Tracker([string]$json, [bool]$allowClosedRemoval = $false) {
         $bakDir = Join-Path $dataDir 'backups'
         Copy-Item $trackerPath (Join-Path $bakDir "tracker-$stamp.json") -Force
         Get-ChildItem $bakDir -Filter 'tracker-*.json' | Sort-Object LastWriteTime -Descending |
-            Select-Object -Skip 40 | Remove-Item -Force -ErrorAction SilentlyContinue
+            Select-Object -Skip $backupsKept | Remove-Item -Force -ErrorAction SilentlyContinue
     }
     $tmp = "$trackerPath.tmp"
     [System.IO.File]::WriteAllText($tmp, $json, (New-Object Text.UTF8Encoding($false)))
@@ -469,6 +577,15 @@ try {
                             Send-Json $ctx @{ ok = $true }
                         } catch { Send-Json $ctx @{ ok = $false; error = $_.Exception.Message } 400 }
                     }
+                }
+                '/api/snapshots' {
+                    Send-Json $ctx @{ ok = $true; kept = $backupsKept
+                                      accesstest = @(Get-Snapshots 'accesstest')
+                                      accessNG   = @(Get-Snapshots 'accessNG') }
+                }
+                '/api/restore' {
+                    try   { Send-Json $ctx (Start-Restore ([string]$req.QueryString['env']) ([string]$req.QueryString['id'])) }
+                    catch { Send-Json $ctx @{ ok = $false; error = $_.Exception.Message } 409 }
                 }
                 '/api/state' {
                     Send-Json $ctx (Get-DeployState -Refresh:($req.QueryString['refresh'] -eq '1'))

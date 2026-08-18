@@ -195,6 +195,19 @@ pre.log { margin: 0; padding: 12px 14px; max-height: 400px; overflow: auto; colo
 .brow code { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); }
 .brow button { margin-left: auto; }
 
+/* ---------- rollback + confirm ---------- */
+.rollback { margin-top: 22px; background: var(--panel); border: 1px solid var(--line);
+            border-radius: 10px; padding: 16px; }
+.rollback h3 { font-size: 15px; margin-bottom: 4px; }
+.rollback .sub { margin-bottom: 12px; }
+.snapenv { margin-bottom: 14px; }
+.snapenv h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
+              font-weight: 600; margin-bottom: 6px; }
+.snap { display: flex; align-items: baseline; gap: 12px; padding: 7px 0;
+        border-top: 1px solid var(--line); flex-wrap: wrap; }
+.snap .swhen { font-weight: 600; min-width: 125px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+.snap .sholds { font-size: 13px; }
+.snap button { margin-left: auto; }
 .arm .armbtns { display: flex; gap: 8px; margin-top: 10px; }
 .arm button.confirm { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
 .arm button.confirm.danger { background: var(--danger); color: #fff; }
