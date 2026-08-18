@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 accessNG Console - local issue tracker + one-click deploy for the UberReaderWebInterface repo.
 
@@ -195,9 +195,11 @@ function Get-DeployState([switch]$Refresh) {
     $state = @{
         ok = $true; repo = $repoRoot; fetchedAt = (Get-Date).ToString('o'); master = $master
         test = $(if ($lastTest) { @{ name = $lastTest.name; short = $lastTest.sha.Substring(0,7)
-                                     sha = $lastTest.sha; current = ($lastTest.sha -eq $master.sha) } } else { $null })
+                                     sha = $lastTest.sha; current = ($lastTest.sha -eq $master.sha)
+                                     behind = @(Get-CommitsBetween $lastTest.sha 'origin/structure_update').Count } } else { $null })
         prod = $(if ($lastNg)   { @{ name = $lastNg.name; short = $lastNg.sha.Substring(0,7)
-                                     sha = $lastNg.sha; current = ($lastNg.sha -eq $master.sha) } } else { $null })
+                                     sha = $lastNg.sha; current = ($lastNg.sha -eq $master.sha)
+                                     behind = @(Get-CommitsBetween $lastNg.sha 'origin/structure_update').Count } } else { $null })
         plans = @{ accesstest = $testPlan; accessNG = $ngPlan }
     }
     $script:Cache.state = $state

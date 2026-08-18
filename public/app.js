@@ -533,7 +533,25 @@ $('backup').addEventListener('click', () => {
   URL.revokeObjectURL(a.href);
 });
 
+function relCard(env, r) {
+  if (!r) return `<div class="rel"><b>${env}</b><span class="sub">nothing released yet</span></div>`;
+  const date = (r.name.match(/\d{4}-\d{2}-\d{2}/) || [])[0] || '';
+  const behind = r.behind || 0;
+  const state = r.current
+    ? '<span class="pill ok">matches master</span>'
+    : `<span class="pill warn">${behind} commit${behind === 1 ? '' : 's'} on master since</span>`;
+  return `<div class="rel"><b>${env}</b><span class="reldate">${esc(date)}</span>
+    <code>${esc(r.name)}</code> <code class="sha">${esc(r.short)}</code> ${state}</div>`;
+}
+
+async function renderReleases() {
+  const s = await api('state');
+  if (!s || !s.ok) { $('releases').innerHTML = ''; return; }
+  $('releases').innerHTML = relCard('accesstest', s.test) + relCard('accessNG', s.prod);
+}
+
 $('restore').addEventListener('click', () => $('restoreFile').click());
+
 $('restoreFile').addEventListener('change', async e => {
   const file = e.target.files[0];
   if (!file) return;
@@ -569,6 +587,7 @@ function renderDeploy(s) {
     return;
   }
   $('fetched').textContent = 'fetched ' + new Date(s.fetchedAt).toLocaleTimeString();
+  if (!s.master) { $('m-ref').textContent = 'structure_update not readable'; $('m-sub').textContent = ''; return; }
   $('m-ref').innerHTML = `structure_update <span class="sha">${esc(s.master.short)}</span>`;
   $('m-sub').textContent = s.master.subject;
 
@@ -606,36 +625,41 @@ function renderDeploy(s) {
   if (running && !tailing) startTail();
 }
 
-function disarm() { armed = false; $('ng-arm').innerHTML = ''; $('go-ng').textContent = 'Promote & deploy accessNG'; }
+function disarm() {
+  armed = false;
+  ['ng-arm', 'test-arm', 'restore-arm'].forEach(id => { const el = $(id); if (el) el.innerHTML = ''; });
+}
+
+// Every path that writes to a live site goes through here: nothing uploads on a single click.
+function askConfirm(host, lines, confirmLabel, danger, onYes) {
+  disarm();
+  armed = true;
+  host.innerHTML = `<div class="arm${danger ? ' prod' : ''}">${lines}
+    <div class="armbtns">
+      <button class="confirm${danger ? ' danger' : ''}" data-confirm>${esc(confirmLabel)}</button>
+      <button data-cancel>Cancel</button>
+    </div></div>`;
+  host.querySelector('[data-cancel]').onclick = () => disarm();
+  host.querySelector('[data-confirm]').onclick = () => { disarm(); onYes(); };
+}
 
 $('go-ng').addEventListener('click', () => {
   const np = dstate.plans.accessNG;
-  if (!armed) {
-    armed = true;
-    $('ng-arm').innerHTML = `<div class="arm"><b>This goes to production.</b>Confirm accesstest was tested and signed off on
-      <code>${esc(np.source)}</code> (<code>${esc(np.short)}</code>). Click again to deploy.</div>`;
-    $('go-ng').textContent = 'Yes — deploy to production';
-    setTimeout(() => { if (armed) disarm(); }, 20000);
-    return;
-  }
-  disarm();
-  startDeploy('accessNG');
+  askConfirm($('ng-arm'),
+    `<b>This goes to production.</b>Deploy <code>${esc(np.branch)}</code> from
+     <code>${esc(np.source)}</code> (<code>${esc(np.short)}</code>) to accessNG.
+     Confirm accesstest was tested and signed off.`,
+    'Yes — deploy to production', true, () => startDeploy('accessNG'));
 });
-$('go-test').addEventListener('click', () => startDeploy('accesstest'));
-$('refresh').addEventListener('click', () => loadDeploy(true));
 
-async function startDeploy(env) {
-  $('go-test').disabled = $('go-ng').disabled = true;
-  banner('', null);
-  const r = await api('deploy', `&env=${env}`);
-  if (!r.ok) { banner(r.error, 'bad'); loadDeploy(); return; }
-  offset = 0; lastPhase = null;
-  $('c-log').textContent = '';
-  $('c-prog').style.width = '0';
-  $('console').classList.add('on');
-  $('c-status').textContent = `deploying ${env} — ${r.branch}`;
-  startTail();
-}
+$('go-test').addEventListener('click', () => {
+  const tp = dstate.plans.accesstest;
+  askConfirm($('test-arm'),
+    `<b>Deploy to accesstest.</b>Publish <code>${esc(tp.branch)}</code>
+     (<code>${esc(tp.short)}</code>) over the test site.`,
+    'Yes — deploy accesstest', false, () => startDeploy('accesstest'));
+});
+$('refresh').addEventListener('click', () => loadDeploy(true));
 
 function banner(text, kind) {
   const b = $('banner');
@@ -682,8 +706,11 @@ function startTail() {
     const ok = final.job.exitCode === 0;
     $('c-prog').style.width = ok ? '100%' : '0';
     $('c-status').textContent = ok ? 'finished' : 'failed';
-    banner(ok ? `${final.job.branch} deployed to ${final.job.env}.`
-              : `Deploy of ${final.job.branch} to ${final.job.env} failed — see the log above. The previous release is still live.`,
+    const wasRestore = String(final.job.branch || '').startsWith('restore ');
+    const what = wasRestore ? final.job.branch.replace('restore ', '') : final.job.branch;
+    banner(ok ? (wasRestore ? `${final.job.env} restored to the snapshot taken ${what}.` : `${what} deployed to ${final.job.env}.`)
+              : (wasRestore ? `Restoring ${final.job.env} to ${what} failed — see the log above. The site is unchanged where the upload did not reach.`
+                            : `Deploy of ${what} to ${final.job.env} failed — see the log above. The previous release is still live.`),
            ok ? 'ok' : 'bad');
     loadDeploy(true);
     loadHistory();
@@ -714,4 +741,5 @@ if (startTabName && startTabName !== 'tracker') document.querySelector(`.tabs bu
 
 loadDb();
 loadHistory();
+renderReleases();
 setInterval(() => { if (deployLoaded && !tailing) loadDeploy(); }, 30000);

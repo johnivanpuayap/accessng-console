@@ -25,6 +25,7 @@
     <div class="sub" style="margin-bottom:14px">A working list and a permanent record. Nothing closed is ever
       removed &mdash; finished work keeps its outcome so you can read back how it was done, and anything you
       <b>decline</b> is parked with the reason so it never comes up for a second decision.</div>
+    <div class="releases" id="releases"></div>
     <div class="today" id="today"></div>
 
     <div class="toolbar">
@@ -36,6 +37,7 @@
       <button id="restore">Restore</button>
       <input type="file" id="restoreFile" accept="application/json,.json" hidden>
     </div>
+
 
     <div class="statustabs" id="statustabs"></div>
     <div class="issues" id="issues"></div>
@@ -72,6 +74,7 @@
         <div class="env">Cut the candidate from structure_update and publish it to the test site.</div>
         <div class="plan" id="test-plan">&hellip;</div>
         <div id="test-changes"></div>
+        <div id="test-arm"></div>
         <button class="go" id="go-test" disabled>Cut &amp; deploy accesstest</button>
       </div>
       <div class="act">
